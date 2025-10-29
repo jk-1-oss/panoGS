@@ -1,0 +1,127 @@
+Results:
+  save_results: True
+  save_dir: "/mnt/nas_10/group/hongjia/PanopticGS-test"
+  save_debug: True # True False
+
+model_params:
+  sh_degree: 0
+  primitive_level_feat: False
+  primitive_level_feat_dim: 16 
+  white_background: False
+  data_device: "cuda"
+
+Dataset:
+  dataset_path: "/mnt/nas_10/group/hongjia/datasets/ScanNet/scans"
+  generated_floder: '/mnt/nas_10/group/hongjia/ScanNet_generated'
+  mask_name: "sam"
+  pcd_downsample: 64
+  pcd_downsample_init: 32
+  adaptive_pointsize: True
+  point_size: 0.05
+  type: 'scannet'
+  Calibration:
+    fx: 577.590698
+    fy: 578.729797
+    cx: 318.905426
+    cy: 242.683609
+    k1: 0.0
+    k2: 0.0
+    p1: 0.0
+    p2: 0.0
+    k3: 0.0
+    width: 640
+    height: 480
+    depth_scale: 1000.0
+    distorted: False
+    crop: 0
+    ignore_edge: 5
+    resize_wh: [640, 480]
+
+decoder:
+  num_components: 10 # dimension of features
+  resolutions: [0.2, 0.06]
+  latent_dims: [128, 512]
+  # 位置编码策略选项：linear(默认), learned_nonlinear, hierarchical, spatial_aware
+  position_encoding: linear
+  # hierarchical编码参数
+  hierarchical_levels: 4
+  # spatial_aware参数通过模型内部定义
+  # 特征表示空间优化选项
+  optimize_feature_space: true  # 是否启用特征空间优化
+  num_subspaces: 4  # 特征分解的子空间数量
+  # 掩码引导特征注意力配置
+  use_mask_attention: true        # 启用掩码引导的特征注意力
+  mask_spatial_weight: 0.3         # 空间注意力权重
+
+segmentation:
+  k_thresh: 0.1 
+  seg_min_verts: 20 
+  k_neigbor: 8
+  thres_connect: [0.9, 0.8, 0.7, 0.6] 
+  thres_merge: 200 
+  # 掩码质量评估配置
+  mask_quality:
+    enabled: true          # 启用掩码质量评估
+    iou_weight: 0.5        # predicted_iou权重
+    stability_weight: 0.3  # stability_score权重
+    area_weight: 0.2       # 面积归一化权重
+    max_area_ratio: 0.1    # 最大面积比例（图像的10%）
+    min_quality_score: 0.3 # 最低质量分数阈值
+    sort_by: 'quality_score' # 排序方式：'quality_score', 'predicted_iou', 'area'
+  # 掩码边缘约束配置
+  mask_edge:
+    enabled: true           # 启用掩码边缘约束
+    mask_edge_weight: 0.8   # 掩码边缘权重
+    edge_sim_threshold: 0.95 # 边缘点对的最小特征相似度阈值
+
+Training:
+  kf_inter: 1
+  fix_ply: True # True False
+  init_itr_num: 1050
+  init_gaussian_update: 100
+  init_gaussian_reset: 500
+  init_gaussian_th: 0.005
+  init_gaussian_extent: 30
+  mapping_itr_num: 20 #40
+  gaussian_update_every: 150
+  gaussian_update_offset: 50
+  gaussian_th: 0.7
+  gaussian_extent: 1.0
+  gaussian_reset: 2001
+  size_threshold: 20
+  edge_threshold: 4
+  pose_window: 5
+  rgb_boundary_threshold: 0.01
+  spherical_harmonics: False # False True
+  thres_vis_dis: 0.07 # 0.15   # distance threshold for visibility test
+  depth_test: True
+  discard_unseen: True 
+
+opt_params:
+  iterations: 30000
+  position_lr_init: 0.00016
+  position_lr_final: 0.0000016
+  position_lr_delay_mult: 0.01
+  position_lr_max_steps: 30000
+  feature_lr: 0.0025
+  opacity_lr: 0.05
+  language_feat_lr: 0.01
+  scaling_lr: 0.001
+  rotation_lr: 0.001
+  percent_dense: 0.01
+  lambda_dssim: 0.2
+  densification_interval: 100
+  opacity_reset_interval: 3000
+  densify_from_iter: 500
+  densify_until_iter: 15000
+  densify_grad_threshold: 0.0002
+
+# SAM掩码处理配置
+sam_masks:
+  use_confidence_info: true       # 使用SAM置信度信息
+  quality_weight_in_fusion: 0.6   # 质量分数在多视图融合中的权重
+  visibility_weight_in_fusion: 0.4 # 可见性在多视图融合中的权重
+  
+pipeline_params:
+  convert_SHs_python: True
+  compute_cov3D_python: False
