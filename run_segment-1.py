@@ -639,8 +639,46 @@ class GSegmentation:
         # 尝试多种方式获取mask_edges
         mask_edges = None
         
-        # 1. 从dataset获取，使用2D到3D投影方法
+        # 0. 首先尝试直接从ScanNet_generated路径加载mask_edges.npy文件
         if use_mask_edge:
+            # 从错误日志中看到尝试加载的路径是：./ScanNet_generated/scene0000_00/sam/raw/mask_edges.npy
+            # 构建类似的路径
+            try:
+                scene_id = self.dataset.scene_id if hasattr(self.dataset, 'scene_id') else 'unknown_scene'
+                mask_name = self.dataset.mask_name if hasattr(self.dataset, 'mask_name') else 'sam'
+                direct_edge_path = os.path.join('./ScanNet_generated', scene_id, mask_name, 'raw', 'mask_edges.npy')
+                print(f"Attempting to load mask_edges directly from: {direct_edge_path}")
+                
+                if os.path.exists(direct_edge_path):
+                    print(f"Direct path exists, attempting to load...")
+                    edges = np.load(direct_edge_path)
+                    print(f"Direct load successful. Shape: {edges.shape if hasattr(edges, 'shape') else 'unknown'}")
+                    
+                    # 检查数据类型和内容
+                    if isinstance(edges, np.ndarray) and len(edges.shape) == 2:
+                        print(f"Direct load: Data shape is valid. Contains {edges.shape[0]} potential edge pairs.")
+                        mask_edges = set(tuple(edge) for edge in edges)
+                        print(f"Direct load: Found {len(mask_edges)} unique mask edges")
+                        
+                        # 获取全局点云以验证索引
+                        global_pointcloud = self.gaussians.get_xyz.detach().cpu().numpy() if hasattr(self.gaussians, 'get_xyz') else None
+                        if len(mask_edges) > 0 and global_pointcloud is not None:
+                            max_point_idx = global_pointcloud.shape[0]
+                            valid_edges = [(p1, p2) for p1, p2 in mask_edges if 0 <= p1 < max_point_idx and 0 <= p2 < max_point_idx]
+                            if len(valid_edges) < len(mask_edges):
+                                print(f"Warning: {len(mask_edges) - len(valid_edges)} edges contain invalid point indices and were filtered out")
+                                mask_edges = set(valid_edges)
+                                print(f"Remaining valid edges after filtering: {len(mask_edges)}")
+                    else:
+                        print(f"Warning: Directly loaded file has unexpected format. Not using it.")
+                        print(f"File type: {type(edges)}")
+                        if hasattr(edges, 'shape'):
+                            print(f"File shape: {edges.shape}")
+                else:
+                    print(f"Direct path does not exist: {direct_edge_path}")
+            except Exception as e:
+                print(f"Error when directly loading mask_edges: {str(e)}")
+            
             # 确保导入了必要的函数
             try:
                 from utils.mask_edge_utils import process_mask_edges_for_pointcloud
@@ -683,14 +721,39 @@ class GSegmentation:
                     from utils.mask_edge_utils import process_mask_edges_for_pointcloud
                     if hasattr(self.dataset, 'masks') and hasattr(self.dataset, 'poses') and hasattr(self.dataset, 'intrinsics'):
                         print("Trying to use process_mask_edges_for_pointcloud function directly...")
-                        mask_edges = process_mask_edges_for_pointcloud(
-                            self.points_w, 
-                            self.dataset.masks, 
-                            self.dataset.poses, 
-                            self.dataset.intrinsics,
-                            width=self.dataset.width,
-                            height=self.dataset.height
-                        )
+                        # 初始化掩码边缘集合
+                        mask_edges = set()
+                        # 逐帧处理，符合process_mask_edges_for_pointcloud函数设计
+                        num_frames = min(len(self.dataset.masks), len(self.dataset.poses), len(self.dataset.intrinsics))
+                        for i in range(num_frames):
+                            print(f"Processing frame {i}/{num_frames} in run_segment-1.py")
+                            # 获取当前帧的数据
+                            mask = self.dataset.masks[i]
+                            pose = self.dataset.poses[i]
+                            K = self.dataset.intrinsics[i]
+                            
+                            # 检查是否有深度图
+                            depth = None
+                            if hasattr(self.dataset, 'depths') and i < len(self.dataset.depths):
+                                depth = self.dataset.depths[i]
+                            
+                            if depth is not None:
+                                # 调用process_mask_edges_for_pointcloud函数处理单个帧
+                                frame_edges = process_mask_edges_for_pointcloud(
+                                    mask,           # 掩码图像
+                                    None,           # 原始彩色图像（可选）
+                                    depth,          # 深度图
+                                    K,              # 相机内参
+                                    pose,           # 相机外参
+                                    self.points_w,  # 全局点云
+                                    max_points_per_frame=500,
+                                    edge_thickness=2,
+                                    depth_scale=1.0
+                                )
+                                # 添加到全局边缘点对集合
+                                mask_edges.update(frame_edges)
+                            else:
+                                print(f"No depth map available for frame {i}, skipping")
                         print(f"Successfully generated {len(mask_edges)} mask edges using process_mask_edges_for_pointcloud")
                     else:
                         print("Dataset lacks necessary mask information for direct edge processing")

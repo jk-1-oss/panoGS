@@ -97,7 +97,7 @@ class ScanNetDataset(torch.utils.data.Dataset):
         mask_path = os.path.join(self.mask_path, '{}.png'.format(name))
         mask = cv2.imread(mask_path, -1).astype(np.float32)
         return mask
-
+        
     def load_data_for_seg(self, kf_inter):
         poses = []
         depths = []
@@ -192,14 +192,46 @@ class ScanNetDataset(torch.utils.data.Dataset):
 #         """
         # 检查是否有预计算的边缘信息
         edge_file = os.path.join(self.mask_path, 'mask_edges.npy')
+        print(f"Checking mask edges file at: {edge_file}")
+        
         if os.path.exists(edge_file):
             try:
+                print(f"File exists, attempting to load...")
                 edges = np.load(edge_file)
-                mask_edges = set(tuple(edge) for edge in edges)
-                print(f"Loaded {len(mask_edges)} mask edges from {edge_file}")
-                return mask_edges
-            except:
-                print(f"Failed to load mask edges from {edge_file}")
+                print(f"File loaded successfully. Shape: {edges.shape if hasattr(edges, 'shape') else 'unknown'}")
+                
+                # 检查数据类型和内容
+                if isinstance(edges, np.ndarray) and len(edges.shape) == 2:
+                    print(f"Data shape is valid for edge pairs. Contains {edges.shape[0]} potential edge pairs.")
+                    mask_edges = set(tuple(edge) for edge in edges)
+                    print(f"Loaded {len(mask_edges)} unique mask edges from {edge_file}")
+                    
+                    # 验证点索引是否在合理范围内
+                    if len(mask_edges) > 0 and global_pointcloud is not None:
+                        max_point_idx = global_pointcloud.shape[0]
+                        valid_edges = [(p1, p2) for p1, p2 in mask_edges if 0 <= p1 < max_point_idx and 0 <= p2 < max_point_idx]
+                        if len(valid_edges) < len(mask_edges):
+                            print(f"Warning: {len(mask_edges) - len(valid_edges)} edges contain invalid point indices and were filtered out")
+                            mask_edges = set(valid_edges)
+                            print(f"Remaining valid edges: {len(mask_edges)}")
+                    
+                    return mask_edges
+                else:
+                    print(f"Warning: Loaded file has unexpected format. Expected 2D array of edge pairs.")
+                    print(f"File type: {type(edges)}")
+                    if hasattr(edges, 'shape'):
+                        print(f"File shape: {edges.shape}")
+                    if len(edges) > 0:
+                        print(f"First few elements: {edges[:3]}")
+            except Exception as e:
+                print(f"Failed to load mask edges from {edge_file}: {str(e)}")
+        else:
+            print(f"Mask edges file does not exist at: {edge_file}")
+            # 检查是否存在其他可能的路径
+            alternative_path = "./ScanNet_generated/" + self.scene_id + "/" + self.mask_name + "/raw/mask_edges.npy"
+            print(f"Checking alternative path: {alternative_path}")
+            if os.path.exists(alternative_path):
+                print(f"Alternative path exists but not being used.")
         
         # 检查是否有必要的数据进行2D到3D的投影
         if global_pointcloud is None:
@@ -233,23 +265,19 @@ class ScanNetDataset(torch.utils.data.Dataset):
             mask = self._seg_masks[i]
             
             try:
-                # 使用符合utils/mask_edge_utils.py中函数签名的参数格式
-                # 构建一个包含单帧所有需要信息的列表
-                masks_list = [mask]
-                poses_list = [pose]
-                intrinsics_list = [K]
-                widths = [self.width]
-                heights = [self.height]
-                
                 # 调用process_mask_edges_for_pointcloud函数
-                # 注意：根据utils/mask_edge_utils.py中的定义，函数期望接收全局点云和多个帧的数据列表
+                # 按照函数定义的参数顺序传递单个帧的数据
+                # 注意：image参数这里传入None，因为我们主要需要掩码和深度信息
                 frame_edge_pairs = process_mask_edges_for_pointcloud(
-                    global_pointcloud,  # 第一个参数是全局点云
-                    masks_list,         # 第二个参数是掩码列表
-                    poses_list,         # 第三个参数是位姿列表
-                    intrinsics_list,    # 第四个参数是内参列表
-                    width=widths[0],    # 宽度
-                    height=heights[0]   # 高度
+                    mask,               # 掩码图像
+                    None,               # 原始彩色图像（可选）
+                    depth,              # 深度图
+                    K,                  # 相机内参
+                    pose,               # 相机外参
+                    global_pointcloud,  # 全局点云
+                    max_points_per_frame=500,
+                    edge_thickness=2,
+                    depth_scale=1.0
                 )
                 
                 # 添加到全局边缘点对集合
